@@ -1,0 +1,26 @@
+Val set 평가 리포트 (총 2089 샘플)
+=============================================
+
+분포:
+  Normal      : 1311개
+  Hemorrhagic : 778개
+
+Confusion matrix:
+                예측 normal    예측 hemorrhagic
+실제 normal         1281             30  ← 오탐(FP)
+실제 hemorrhagic      56            722  ← 누락(FN)
+
+--- 주요 지표 ---
+Sensitivity (Recall)     : 0.9280  (출혈 탐지율)
+Specificity              : 0.9771  (정상 식별율)
+PPV (Precision)          : 0.9601
+NPV                      : 0.9581
+Accuracy                 : 0.9588
+
+--- 핵심 오탐/누락 ---
+Normal 오탐율 (FP rate)     : 0.0229  ← 낮을수록 좋음
+Hemorrhagic 누락율 (FN rate): 0.0720  ← 낮을수록 좋음 (임상적으로 중요)
+
+샘플 이미지 저장:
+  FP 30개 → results/valset/false_positives
+  FN 30개 → results/valset/false_negatives
