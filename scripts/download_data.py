@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 TEKNO21_CACHE   = Path("./data/raw/tekno21")
 CT_HEM_DIR      = Path("./data/raw/ct_hemorrhage")
-CT_HEM_UNPACKED = CT_HEM_DIR / "computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.0.0"
-CT_HEM_ZIP_URL  = "https://physionet.org/static/published-projects/ct-ich/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.0.0.zip"
+CT_HEM_UNPACKED = CT_HEM_DIR / "computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.3.1"
+CT_HEM_ZIP_URL  = "https://physionet.org/static/published-projects/ct-ich/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.3.1.zip"
 
 AISD_DIR        = Path("./data/raw/aisd")
 
@@ -57,8 +57,10 @@ def check_tekno21() -> bool:
 # ── 2. CT Hemorrhage (PhysioNet) ─────────────────────────────────────────────
 def check_ct_hemorrhage() -> bool:
     print("\n[2] CT Hemorrhage (PhysioNet)")
-    csv_path = CT_HEM_UNPACKED / "hemorrhage_diagnosis.csv"
-    if csv_path.exists():
+    # v1.3.1 기준 CSV명. v1.0.0 레거시 파일도 fallback으로 체크.
+    csv_path = CT_HEM_UNPACKED / "hemorrhage_diagnosis_raw_ct.csv"
+    csv_legacy = CT_HEM_UNPACKED / "hemorrhage_diagnosis.csv"
+    if csv_path.exists() or csv_legacy.exists():
         print(f"  ✅ 이미 있음: {CT_HEM_UNPACKED}")
         return True
 
@@ -73,7 +75,7 @@ def check_ct_hemorrhage() -> bool:
             print()
         except Exception as e:
             print(f"\n  ❌ 다운로드 실패: {e}")
-            print(f"  수동 다운로드: https://physionet.org/content/ct-ich/1.0.0/")
+            print(f"  수동 다운로드: https://physionet.org/content/ct-ich/1.3.1/")
             return False
 
     print("  압축 해제 중...")
