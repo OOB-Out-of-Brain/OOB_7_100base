@@ -16,8 +16,8 @@ classifier:
   epochs: 50
   learning_rate: 0.001
   weight_decay: 0.0001
-  dropout_rate: 0.3
-  label_smoothing: 0.1
+  dropout_rate: 0.4           # 0.3→0.4: 도메인 일반화 강화
+  label_smoothing: 0.15       # 0.1→0.15: 과적합 억제
   focal_gamma: 2.0
   grad_clip: 1.0
   use_amp: true
@@ -25,7 +25,7 @@ classifier:
   unfreeze_lr_factor: 0.1   # Phase 2: backbone lr = lr * factor
   best_metric: macro_f1
   min_hemorrhagic_recall: 0.85
-  min_specificity: 0.90
+  min_specificity: 0.95       # 0.90→0.95: FP 억제 → CQ500 specificity 개선 목표
   threshold_sweep_steps: 19  # 0.05 ~ 0.95
   early_stopping_patience: 15
   save_path: ./checkpoints/classifier
