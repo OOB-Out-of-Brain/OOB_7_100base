@@ -74,6 +74,23 @@ This repository is a Python medical-image research pipeline for brain CT hemorrh
 - If segmentation overrides a normal classifier result, record an override reason.
 - The inference pipeline exposes `lesion_prob_map`, raw/filtered lesion area, component counts, and max component mean probability.
 
+## LLM Integration (LLaMA 3.2 Vision 11B)
+
+- LLM 연동 모듈: `inference/llm_reporter.py` (Ollama 로컬 서버 기반)
+- 배치 스크립트: `scripts/run_llm_report.py`
+- 역할: PipelineResult + CT 오버레이 이미지를 받아 자연어 판독 소견 생성 (연구/교육 목적)
+- 모델: `llama3.2-vision:11b` (M4 Pro 24GB에서 Q4 quantization으로 동작, ~7GB)
+- 설정:
+  ```bash
+  brew install ollama
+  ollama serve
+  ollama pull llama3.2-vision:11b
+  ```
+- 단일 이미지: `python demo.py --image ct.png --llm`
+- 배치: `python scripts/run_llm_report.py --image_dir test_samples/`
+- LLM은 파이프라인 판단을 대체하지 않음 — 분류/세그 결과에 대한 보조 소견만 제공
+- LLM 오류 시 파이프라인 결과는 정상 반환되며 리포트만 생략됨
+
 ## Handoff Notes
 
 - Before running long training or downloads, ask the user unless they explicitly requested it.

@@ -18,3 +18,4 @@ nibabel
 rich
 pydicom
 kaggle==1.7.4.5
+ollama>=0.3.0
