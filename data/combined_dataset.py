@@ -90,10 +90,14 @@ class CombinedDataset(Dataset):
 
 def _collect_ct(data_root):
     root = Path(data_root)
-    df = pd.read_csv(root / "hemorrhage_diagnosis.csv")
+    csv_path = root / "hemorrhage_diagnosis_raw_ct.csv"
+    if not csv_path.exists():
+        csv_path = root / "hemorrhage_diagnosis.csv"
+    df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
 
     samples = []
+    missing = 0
     for _, row in df.iterrows():
         pid_int = int(row["PatientNumber"])
         pid_str = str(pid_int).zfill(3)
@@ -102,6 +106,10 @@ def _collect_ct(data_root):
         img_path = root / "Patients_CT" / pid_str / "brain" / f"{slice_num}.jpg"
         if img_path.exists():
             samples.append(("ct", img_path, label, pid_int))
+        else:
+            missing += 1
+    if missing:
+        print(f"  ⚠️  CT Hemorrhage: {missing}개 이미지 파일 없음 (CSV 항목 무시됨)")
     return samples
 
 

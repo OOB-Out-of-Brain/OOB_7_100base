@@ -1,6 +1,7 @@
 device: auto  # auto: mps > cuda > cpu 순서로 자동 선택
 
 data:
+  num_workers: 0        # albumentations 멀티프로세싱 피클 충돌 방지
   aisd_path: ./data/raw/aisd
   tekno21_cache: ./data/raw/tekno21
   processed_path: ./data/processed
@@ -37,6 +38,7 @@ segmentor:
   batch_size: 24
   epochs: 80
   learning_rate: 0.0001
+  freeze_epochs: 5
   weight_decay: 0.00001
   tversky_alpha: 0.3
   tversky_beta: 0.7

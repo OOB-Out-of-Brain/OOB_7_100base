@@ -193,9 +193,11 @@ def main(args):
     # ── 1단계: encoder freeze, decoder만 학습 ────────────────────────────────
     print(f"[Phase 1] encoder freeze — {freeze_epochs} epochs")
     model.freeze_encoder()
+    # Phase 1: decoder만 학습 → encoder보다 5× 높은 LR로 빠르게 수렴
+    decoder_lr = lr * 5
     opt1 = AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                 lr=lr * 5, weight_decay=s["weight_decay"])
-    sch1 = OneCycleLR(opt1, max_lr=lr * 5,
+                 lr=decoder_lr, weight_decay=s["weight_decay"])
+    sch1 = OneCycleLR(opt1, max_lr=decoder_lr,
                       steps_per_epoch=len(train_loader),
                       epochs=freeze_epochs, pct_start=0.3)
 

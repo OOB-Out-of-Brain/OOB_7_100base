@@ -92,6 +92,9 @@ def select_threshold_row(rows: list, metric_name: str = "macro_f1",
         r for r in rows
         if r["hemorrhagic_recall"] >= min_recall and r["specificity"] >= min_specificity
     ]
+    if not eligible and (min_recall > 0 or min_specificity > 0):
+        print(f"  ⚠️  threshold 제약 불충족 (recall≥{min_recall}, spec≥{min_specificity}) "
+              f"→ 제약 없이 최적 threshold 선택")
     pool = eligible or rows
     if not pool:
         raise ValueError("threshold rows are empty")

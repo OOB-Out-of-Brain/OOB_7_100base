@@ -93,13 +93,16 @@ class CTSegDataset(Dataset):
 
 def _collect_samples(data_root: str):
     root = Path(data_root)
-    diag_csv = root / "hemorrhage_diagnosis.csv"
+    diag_csv = root / "hemorrhage_diagnosis_raw_ct.csv"
+    if not diag_csv.exists():
+        diag_csv = root / "hemorrhage_diagnosis.csv"
     patients_dir = root / "Patients_CT"
 
     df = pd.read_csv(diag_csv)
     df.columns = df.columns.str.strip()
 
     cls_samples, seg_samples = [], []
+    missing_imgs = 0
     for _, row in df.iterrows():
         pid_int = int(row["PatientNumber"])
         pid_str = str(pid_int).zfill(3)
@@ -108,6 +111,7 @@ def _collect_samples(data_root: str):
 
         img_path = patients_dir / pid_str / "brain" / f"{slice_num}.jpg"
         if not img_path.exists():
+            missing_imgs += 1
             continue
         cls_samples.append((img_path, label, pid_int))
 
@@ -115,6 +119,8 @@ def _collect_samples(data_root: str):
         if mask_path.exists():
             seg_samples.append((img_path, mask_path, pid_int))
 
+    if missing_imgs:
+        print(f"  ⚠️  CT Hemorrhage: {missing_imgs}개 이미지 없음 (무시됨)")
     return cls_samples, seg_samples
 
 

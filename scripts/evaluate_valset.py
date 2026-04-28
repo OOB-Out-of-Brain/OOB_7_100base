@@ -15,6 +15,7 @@ import sys, csv, random
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import yaml
 import numpy as np
 from PIL import Image
 import matplotlib
@@ -23,6 +24,11 @@ import matplotlib.pyplot as plt
 
 from data.combined_dataset import build_combined_dataloaders, CLASS_NAMES
 from inference.pipeline import StrokePipeline
+
+_cfg = yaml.safe_load(open(Path(__file__).parent.parent / "config.yaml"))
+_CT_ROOT   = _cfg["data"]["ct_hemorrhage_path"]
+_TK_CACHE  = _cfg["data"]["tekno21_cache"]
+_IMG_SIZE  = _cfg["classifier"]["image_size"]
 
 
 OUT_DIR = Path("./results/valset")
@@ -51,9 +57,9 @@ def main():
 
     print("Val set 로딩...")
     _, val_loader, _ = build_combined_dataloaders(
-        ct_root="./data/raw/ct_hemorrhage/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.0.0",
-        tekno21_cache="./data/raw/tekno21",
-        image_size=224, batch_size=1, num_workers=0,
+        ct_root=_CT_ROOT,
+        tekno21_cache=_TK_CACHE,
+        image_size=_IMG_SIZE, batch_size=1, num_workers=0,
     )
     val_ds = val_loader.dataset
     samples = val_ds.samples  # [(source, ref, label), ...]
