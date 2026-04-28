@@ -1,209 +1,272 @@
-# Brain Stroke AI — CT 출혈 분석 (A 규칙 / 분류기 단독)
+# OOB_7_100base — Brain CT Hemorrhage Detection + LLM Report
 
-⭐ **이 버전(OOB_test_7)은 가장 추천되는 최종 버전입니다.**
-분류기 단독으로 판독 → **Val set 2089장 기준 Accuracy 96.03%**.
+OOB_test_7 epoch100 체크포인트를 베이스로, 개선된 학습 인프라와 **LLaMA 3.2 Vision 11B 판독 리포트**를 추가한 파이프라인.
 
-- **Classifier**: EfficientNet-B2 (2-class)
-- **Segmentor**: U-Net + ResNet34 encoder (마스크는 **시각화 용도로만** 사용)
-- **Device**: Apple Silicon MPS / NVIDIA CUDA / CPU 자동 감지
-- **Pipeline 규칙**: 분류기 softmax 출력 그대로 사용 (post-processing 없음)
+> **연구/교육 목적 전용 — 임상 진단 도구가 아닙니다.**
 
 ---
 
-## 1. Quick Start
+## 베이스라인 성능 (val set 2,089장)
+
+| 지표 | 값 |
+|------|---:|
+| Accuracy | 95.88% |
+| Sensitivity (출혈 탐지율) | **92.80%** |
+| Specificity (정상 식별율) | **97.71%** |
+| Precision (PPV) | 96.01% |
+| FP (정상 → 출혈 오탐) | 30 |
+| FN (출혈 → 정상 누락) | 56 |
+
+---
+
+## 주요 개선 사항 (vs OOB_test_7)
+
+| 항목 | 변경 내용 |
+|------|----------|
+| **LLM 판독** | LLaMA 3.2 Vision 11B (Ollama) — CT 이미지 + 파이프라인 수치 → 자연어 소견 |
+| **분류기 학습** | 2-stage freeze→unfreeze, OneCycleLR, FocalLoss, AMP, gradient clipping |
+| **세그멘터 학습** | TverskyBCELoss (FN 패널티 강화), AMP, positive/empty Dice 분리 리포트 |
+| **체크포인트 선택** | threshold sweep → macro F1 + recall constraint 기반 자동 선택 |
+| **모델 백본** | EfficientNet-B2 → **EfficientNet-B4**, 240px/320px |
+| **추론 파이프라인** | config-driven threshold, decision_source, connected component 필터링 |
+| **라이브 모니터** | `--log` argparse 파라미터화 (하드코딩 경로 제거) |
+
+---
+
+## 빠른 시작
+
+### 1. 설치
 
 ```bash
-git clone https://github.com/OOB-Out-of-Brain/OOB_test_7.git
-cd OOB_test_7
+git clone https://github.com/OOB-Out-of-Brain/OOB_7_100base.git
+cd OOB_7_100base
 
 python3 -m venv venv
-source venv/bin/activate              # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
-
-python scripts/download_data.py       # 학습용 4개 데이터셋 ~3.3GB 자동
-python training/train_classifier.py   # 분류기 학습 (~1.5~2시간)
-python training/train_segmentor.py    # 분할기 학습 (~30분)
-
-python demo.py --image path/to/ct.jpg # 추론
 ```
 
----
-
-## 2. 데이터셋 가이드
-
-### 2-1. 학습용 (필수) — `download_data.py` 한 번
-
-| 데이터셋 | 출처 | 용량 | 자동 | 역할 |
-|---|---|---|---|---|
-| tekno21 | HuggingFace `BTX24/tekno21-brain-stroke-dataset-multi` | ~560MB | ✅ | 분류 |
-| CT Hemorrhage | PhysioNet `ct-ich v1.0.0` | ~1.2GB | ✅ | 분류 + 분할 |
-| AISD (synthetic) | 로컬 생성 | ~110MB | ✅ | 분할 보조 |
-| BHSD | HuggingFace `WuBiao/BHSD` | ~1.4GB | ✅ | 분류 + 분할 (subtype 5종 → binary) |
-
-**BHSD 처리**: 3D NIfTI → brain window (center 40, width 80 HU) → 2D PNG 슬라이스.
-라벨 5종(EDH/IPH/IVH/SAH/SDH)은 전부 `1=hemorrhagic` 으로 통합.
-
-### 2-2. 외부 테스트셋 (선택, **학습 금지**)
-
-| 데이터셋 | 출처 | 용량 | 자동 | 용도 |
-|---|---|---|---|---|
-| **CQ500** | qure.ai | ~28GB | ✅ **완전 자동** (aria2c 설치 후) | 외부 일반화 테스트 |
-
-**한 줄로 받고 바로 평가:**
+### 2. 데이터 다운로드
 
 ```bash
-brew install aria2                        # 최초 1회 (macOS). Ubuntu는 sudo apt install aria2
-python scripts/download_cq500.py          # Academic Torrents 자동 (28GB, reads.csv 포함)
-python scripts/evaluate_cq500.py          # 491 스캔 평가 → results/cq500/ 에 FP/FN 리포트
+python scripts/download_data.py      # tekno21 + CT Hemorrhage + BHSD + AISD (~3.3GB)
 ```
 
-aria2c 없으면 Kaggle 대안 (40GB, `pip install kaggle` + `~/.kaggle/kaggle.json` 필요):
+### 3. 학습
+
 ```bash
-python scripts/download_cq500.py --method kaggle
+# 분류기 (2-stage, ~1.5~2시간 / M4 Pro)
+python training/train_classifier.py
+
+# 세그멘터 (~30~50분 / M4 Pro)
+python training/train_segmentor.py
+
+# 실시간 모니터링 (별도 터미널)
+python scripts/live_monitor.py --log logs/classifier_train.log
 ```
 
-**라이선스**: CC BY-NC-SA 4.0 — 연구/평가 용도만, 학습 금지.
-
----
-
-## 3. 테스트 실행 방법
-
-### 3-1. 단일 이미지
+### 4. 추론
 
 ```bash
+# 기본 추론
 python demo.py --image path/to/ct.jpg
-# → results/{파일명}_result.png
+
+# LLM 판독 포함
+python demo.py --image path/to/ct.jpg --llm
+
+# LLM 리포트 파일 저장
+python demo.py --image path/to/ct.jpg --llm --llm-save
 ```
 
-### 3-2. 폴더 배치 (대량)
+---
+
+## LLaMA 3.2 Vision 11B 설정
 
 ```bash
-python scripts/run_batch_test.py \
-    --input-dir /path/to/images \
-    --output-dir results/my_test/
+# Ollama 설치 (최초 1회)
+brew install ollama          # macOS
+# curl -fsSL https://ollama.com/install.sh | sh  # Linux
+
+# 모델 다운로드 (~7GB)
+ollama pull llama3.2-vision:11b
+
+# 서버 실행 (학습/추론 전에 실행해 두기)
+ollama serve
 ```
 
-**출력**: 각 이미지 결과 PNG + 터미널 요약 (normal/hemorrhagic, 신뢰도, 병변 크기).
-
-### 3-3. Val set 전체 상세 평가 (2089장)
+### 단일 이미지 LLM 판독
 
 ```bash
+python demo.py --image ct.jpg --llm
+```
+
+```
+============================================================
+  LLM 판독 (llama3.2-vision:11b)
+  파이프라인 입력: HEMORRHAGIC (94.3%)
+  응답 시간: 8.2s
+────────────────────────────────────────────────────────────
+1. Observation: The CT image shows a hyperdense region ...
+2. Consistency: The automated classification aligns with ...
+3. Uncertainty: The lesion boundary near the ...
+────────────────────────────────────────────────────────────
+  ⚠  연구/교육 목적 전용 — 임상 진단이 아닙니다.
+```
+
+### 배치 LLM 판독
+
+```bash
+python scripts/run_llm_report.py \
+    --image_dir test_samples/ \
+    --output_dir results/llm/
+
+# 출력: results/llm/{이미지명}.llm.txt + llm_summary.csv
+```
+
+---
+
+## 파이프라인 구조
+
+```
+CT 이미지 (PNG/JPG)
+      │
+      ▼
+┌─────────────────────────────────┐
+│  StrokePipeline                 │
+│  ┌──────────────────────────┐   │
+│  │ EfficientNet-B4 분류기   │   │
+│  │ → normal / hemorrhagic   │   │
+│  │ → threshold sweep 선택   │   │
+│  └──────────────────────────┘   │
+│  ┌──────────────────────────┐   │
+│  │ U-Net + EfficientNet-B4  │   │
+│  │ → 병변 마스크 + 오버레이  │   │
+│  │ → connected component    │   │
+│  └──────────────────────────┘   │
+└─────────────────────────────────┘
+      │ PipelineResult
+      ▼
+┌─────────────────────────────────┐
+│  LLMReporter (선택)             │
+│  LLaMA 3.2 Vision 11B (Ollama) │
+│  → 자연어 판독 소견              │
+└─────────────────────────────────┘
+      │
+      ▼
+시각화 PNG + (LLM 리포트 TXT)
+```
+
+---
+
+## 평가 스크립트
+
+```bash
+# Val set 상세 평가 (FP/FN 샘플 저장)
 python scripts/evaluate_valset.py
-# → results/valset/metrics.txt + summary.csv + FP/FN 샘플
-```
+# → results/valset/metrics.txt + false_positives/ + false_negatives/
 
-### 3-4. 3가지 Pipeline 규칙 비교
-
-```bash
+# 파이프라인 규칙 A/B/C 비교
 python scripts/evaluate_valset_compare.py
-# → results/valset/rule_comparison.txt
-```
 
-### 3-5. 전체 2089장 4폴더 분류 저장
-
-```bash
+# Val set 전체 4폴더 분류 저장 (TN/TP/FP/FN)
 python scripts/save_all_valset_results.py
-# → results/valset_all/{correct_normal,correct_hemorrhagic,false_positives,false_negatives}/*.png
-```
 
-### 3-6. 외부 CQ500 평가 (데이터 수동 다운로드 후)
-
-```bash
+# 외부 CQ500 평가 (~28GB, aria2c 필요)
+brew install aria2
+python scripts/download_cq500.py
 python scripts/evaluate_cq500.py
-# → results/cq500/metrics.txt + FP/FN 샘플
 ```
 
 ---
 
-## 4. Pipeline 판독 규칙 (A 규칙, 이 버전)
+## 폴더 구조
 
 ```
-[이미지] → [분류기(EfficientNet-B2)] → softmax 확률 → 최종 판독
-       ↓ (선택, 시각화용)
-       [세그멘터(U-Net)] → 병변 마스크 → overlay 이미지
-```
-
-분류기 판단을 **그대로 신뢰**. 세그멘터는 "어디가 출혈인가?" 만 시각화.
-
-### 성능 (val set 2089장)
-
-| 지표 | A 규칙 (이 버전) | B 규칙 (OOB_test_6, 1% threshold) |
-|---|---:|---:|
-| **Accuracy** | **96.03%** | 72.00% |
-| Sensitivity (출혈 탐지) | **93.32%** | 28.02% ⚠️ |
-| Specificity (정상 식별) | 97.64% | **98.09%** |
-| FP (오탐) | 31 | **25** |
-| FN (누락, 임상 위험) | **52** | 560 ⚠️ |
-
-**왜 A 규칙이 더 좋은가?**
-- 분류기는 8621장(CT+tekno21+BHSD)으로 학습되어 자체 Acc 96%
-- 세그멘터 Dice 0.56 수준이라 **작은 출혈 마스크를 못 잡음**
-- 1% 규칙을 쓰면 분류기가 맞게 예측해도 pipeline 이 뒤집어 normal 만들어 **FN 급증**
-- 시각화는 세그 결과 그대로 사용하면 되므로 **분류와 분리하는 게 맞음**
-
----
-
-## 5. 폴더 구조
-
-```
-OOB_test_7/
-├─ README.md                  # 이 문서 (A 규칙)
-├─ HOWTRAIN.md                # 학습 상세 가이드
-├─ config.yaml                # 하이퍼파라미터
-├─ demo.py                    # 단일 이미지 추론
+OOB_7_100base/
+├── demo.py                        # 단일 이미지 추론 (--llm 옵션)
+├── config.yaml                    # 하이퍼파라미터 (EfficientNet-B4, AMP 등)
+├── CLAUDE.md                      # AI 에이전트 프로젝트 가이드
 │
-├─ data/
-│  ├─ combined_dataset.py       # 분류기 로더
-│  ├─ ct_hemorrhage_dataset.py  # 분할기 로더
-│  └─ raw/, processed/          # gitignore (download_data.py 로 받음)
+├── data/
+│   ├── combined_dataset.py        # 분류기 데이터로더
+│   ├── ct_hemorrhage_dataset.py   # 세그멘터 데이터로더
+│   └── raw/, processed/           # .gitignore (download_data.py로 받기)
 │
-├─ models/{classifier,segmentor}.py
-├─ training/{train_classifier,train_segmentor,metrics}.py
-├─ inference/
-│  ├─ pipeline.py              # ⭐ 분류기 단독 판독 (post-processing 없음)
-│  └─ visualization.py
+├── models/
+│   ├── classifier.py              # EfficientNet-B4, freeze/unfreeze, threshold
+│   └── segmentor.py               # U-Net + EfficientNet-B4 encoder
 │
-├─ scripts/
-│  ├─ download_data.py         # 학습용 4개 데이터셋
-│  ├─ download_bhsd.py / preprocess_bhsd.py
-│  ├─ generate_synthetic_aisd.py
-│  ├─ download_cq500.py        # CQ500 시도 + 수동 안내
-│  ├─ evaluate_cq500.py        # 외부 테스트 평가
-│  ├─ run_batch_test.py        # 폴더 배치
-│  ├─ evaluate_valset.py       # val set 상세
-│  ├─ evaluate_valset_compare.py  # 규칙 비교
-│  └─ save_all_valset_results.py  # 2089장 4폴더 분류
+├── training/
+│   ├── train_classifier.py        # 2-stage, FocalLoss, OneCycleLR, AMP
+│   ├── train_segmentor.py         # TverskyBCELoss, AMP, positive/empty Dice
+│   ├── metrics.py                 # threshold_sweep, segmentation_stats, loss 함수
+│   └── runtime.py                 # AMP helper, BatchProgressLogger, ETA
 │
-├─ checkpoints/               # 학습 결과 (gitignore)
-└─ results/                   # 추론 결과
+├── inference/
+│   ├── pipeline.py                # StrokePipeline (분류 + 세그 + component 필터)
+│   ├── visualization.py           # 오버레이 시각화
+│   └── llm_reporter.py            # LLaMA 3.2 Vision 판독 리포터
+│
+├── scripts/
+│   ├── download_data.py           # 학습용 데이터셋 자동 다운로드
+│   ├── run_llm_report.py          # 배치 LLM 판독
+│   ├── evaluate_valset.py         # Val set 상세 평가
+│   ├── evaluate_valset_compare.py # 규칙 A/B/C 비교
+│   ├── save_all_valset_results.py # 전체 2089장 4폴더 분류
+│   ├── evaluate_cq500.py          # 외부 CQ500 평가
+│   ├── validate.py                # threshold sweep + segmentation 검증
+│   └── live_monitor.py            # 실시간 학습 모니터 (--log 파라미터)
+│
+├── checkpoints/                   # 학습된 모델 (.gitignore)
+└── results/                       # 추론/평가 결과
+    └── valset/metrics.txt         # 베이스라인 val set 결과
 ```
 
 ---
 
-## 6. 예상 소요 시간 (MacBook M 시리즈)
+## 학습 설정 (config.yaml 주요 값)
+
+| 항목 | 분류기 | 세그멘터 |
+|------|--------|---------|
+| 백본 | EfficientNet-B4 | EfficientNet-B4 |
+| 입력 크기 | 240×240 | 320×320 |
+| 배치 크기 | 64 | 24 |
+| 학습률 | 0.001 | 0.0001 |
+| Loss | FocalLoss (γ=2) | TverskyBCELoss (α=0.3, β=0.7) |
+| 스케줄러 | OneCycleLR | CosineAnnealingLR |
+| AMP | ✅ | ✅ |
+| Gradient Clip | 1.0 | 1.0 |
+
+---
+
+## 데이터셋
+
+| 데이터셋 | 출처 | 크기 | 용도 |
+|----------|------|------|------|
+| tekno21 | HuggingFace `BTX24/tekno21-brain-stroke-dataset-multi` | ~560MB | 분류 |
+| CT Hemorrhage | PhysioNet `ct-ich v1.3.1` | ~1.2GB | 분류 + 세그 |
+| AISD (synthetic) | 로컬 생성 | ~110MB | 세그 보조 |
+| BHSD | HuggingFace `WuBiao/BHSD` | ~1.4GB | 분류 + 세그 |
+| CQ500 | qure.ai (CC BY-NC-SA 4.0) | ~28GB | 외부 평가 전용 |
+
+---
+
+## 예상 소요 시간 (MacBook M4 Pro)
 
 | 작업 | 시간 |
-|---|---|
-| `download_data.py` (3.3GB) | 30분~1시간 |
-| `train_classifier.py` (50 epoch) | ~1.5~2시간 |
-| `train_segmentor.py` (early stop) | ~20~40분 |
-| 단일 추론 | 1~2초 |
+|------|------|
+| 데이터 다운로드 | 30분~1시간 |
+| 분류기 학습 (50 epoch) | ~1.5~2시간 |
+| 세그멘터 학습 (early stop) | ~30~50분 |
+| 단일 추론 (파이프라인) | ~1~2초 |
+| 단일 추론 (파이프라인 + LLM) | ~10~15초 |
 | Val set 전체 평가 (2089장) | ~10분 |
 
 ---
 
-## 7. 트러블슈팅
+## 관련 레포
 
-- **PhysioNet zip 실패** → https://physionet.org/content/ct-ich/1.0.0/ 수동 다운로드 후 `data/raw/ct_hemorrhage/` 에 압축 해제
-- **BHSD 느림** → `huggingface-cli login`
-- **CQ500 자동 실패** → 이메일 등록 방식이라 정상 (수동 필요)
-- **GPU OOM** → `config.yaml` 의 `batch_size` 절반
-- **MPS 미지원** → 자동 CPU 전환 (느림)
-
----
-
-## 8. 관련 레포
-
-- **`OOB_test_6`** : 1% threshold 규칙 버전 (스크리닝용, specificity ↑)
-- **`OOB_test_7`** (이 레포) : 분류기 단독 (정확도 ↑, 권장)
-- 이전 실험: `OOB_test_1~5`
+| 레포 | 설명 |
+|------|------|
+| [OOB_test_7_epoch100](https://github.com/OOB-Out-of-Brain/OOB_test_7_epoch100) | 이 레포의 베이스 (epoch100, 2-class) |
+| [OOB_test_12](https://github.com/OOB-Out-of-Brain/OOB_test_12) | 2-class 개선 파이프라인 |
