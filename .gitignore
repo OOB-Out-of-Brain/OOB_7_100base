@@ -18,10 +18,16 @@ checkpoints/classifier/*.pth
 checkpoints/segmentor/*.pth
 logs/
 
-# 결과 이미지 (대용량 — summary.csv/metrics.txt는 유지)
+# 결과 이미지 (대용량 — summary.csv/metrics.txt/BASELINE.md는 유지)
 results/valset/false_positives/
 results/valset/false_negatives/
 results/valset_all/
+results/brain_test/
+results/cq500/correct_normal/
+results/cq500/correct_hemorrhagic/
+results/cq500/false_positives/
+results/cq500/false_negatives/
+results/*.png
 
 # macOS
 .DS_Store
