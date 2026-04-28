@@ -38,7 +38,9 @@ from training.metrics import (
     threshold_predictions,
     threshold_sweep,
 )
-from training.runtime import clear_device_cache, configure_torch_runtime, runtime_summary
+from training.runtime import clear_device_cache, configure_torch_runtime, runtime_summary, suppress_noisy_runtime_warnings
+
+suppress_noisy_runtime_warnings()
 
 
 def get_device() -> torch.device:
@@ -159,7 +161,6 @@ def main(args):
     lr          = args.lr         or c["learning_rate"]
     image_size  = c["image_size"]
     num_workers = cfg["data"].get("num_workers", 6)
-    prefetch    = cfg["data"].get("prefetch_factor", 4)
     freeze_epochs = min(c.get("freeze_epochs", 5), epochs)
     save_path = Path(c["save_path"])
     save_path.mkdir(parents=True, exist_ok=True)
@@ -179,7 +180,6 @@ def main(args):
         tekno21_cache=cfg["data"]["tekno21_cache"],
         image_size=image_size, batch_size=batch_size,
         num_workers=num_workers,
-        prefetch_factor=prefetch,
         bhsd_processed_dir=cfg["data"].get("bhsd_processed_dir", "./data/processed/bhsd"),
     )
     print(f"학습: {len(train_loader.dataset)}개  검증: {len(val_loader.dataset)}개\n")
@@ -304,5 +304,6 @@ if __name__ == "__main__":
     parser.add_argument("--epochs",     type=int,   default=None)
     parser.add_argument("--batch_size", type=int,   default=None)
     parser.add_argument("--lr",         type=float, default=None)
+    parser.add_argument("--resume",     action="store_true", help="(예약됨) 체크포인트 재개")
     args = parser.parse_args()
     main(args)

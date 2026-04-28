@@ -224,6 +224,42 @@ OOB_7_100base/
 
 ---
 
+## 모델 선정 이유
+
+### 분류기: EfficientNet-B4
+
+| 후보 | 파라미터 | ImageNet Top-1 | 선택 이유 |
+|------|:--------:|:--------------:|-----------|
+| ResNet-50 | 25M | 76.1% | 기준선. 수용 영역이 좁아 전체 맥락 파악 부족 |
+| EfficientNet-B2 | 9M | 80.1% | 베이스라인 모델 (ver7_100epoch) — 빠르지만 CQ500 특이도 48% |
+| **EfficientNet-B4** | **19M** | **83.0%** | **채택** — B2 대비 +2.9%p 정확도, 240px 입력으로 세부 출혈 패턴 포착 |
+| EfficientNet-B7 | 66M | 84.4% | 과적합 위험 ↑, M4 Pro 24GB에서 배치 64 불가 |
+| ViT-B/16 | 86M | 81.8% | 데이터 수(~8K장)가 ViT 사전학습 fine-tune 최소선 미달 |
+
+**선택 근거:**
+- **CQ500 특이도 개선 목표(48% → 65%)**: B4의 더 깊은 feature 계층이 도메인 간 windowing 차이를 더 잘 분리
+- **2-stage freeze→unfreeze**: B4 encoder를 처음 5 epoch 동결 후 차등 LR(×0.1)로 fine-tune → 의료 도메인에 안전한 전이학습
+- **FocalLoss(γ=2)**: 정상 슬라이스가 출혈보다 많은 클래스 불균형 보정
+- **threshold sweep**: argmax 대신 macro F1 + recall 제약으로 최적 결정 경계 선택
+
+---
+
+### 세그멘터: U-Net + EfficientNet-B4 Encoder
+
+| 후보 | 특징 | 선택 이유 |
+|------|------|-----------|
+| U-Net + ResNet-34 | 경량, 빠름 | 베이스라인 (Dice 0.4665). 출혈 경계 해상도 부족 |
+| **U-Net + EfficientNet-B4** | **skip connection 5단계** | **채택** — 분류기와 backbone 공유로 일관된 feature 공간 |
+| DeepLabV3+ | Atrous convolution | 뇌 CT처럼 작고 분산된 병변에 U-Net이 더 적합 |
+| Attention U-Net | 추가 파라미터 | 병변 크기 분포 다양 → 일반 U-Net 먼저 검증 후 고려 |
+
+**선택 근거:**
+- **TverskyBCELoss(α=0.3, β=0.7)**: 출혈 병변 미탐지(FN)에 더 큰 패널티 → 작은 병변 탐지율 향상
+- **분류기와 동일 backbone(EfficientNet-B4)**: 전이학습 가중치 재사용, 도메인 적응 일관성
+- **connected component 필터링**: 노이즈성 소형 위양성 영역 후처리 제거
+
+---
+
 ## 학습 설정 (config.yaml 주요 값)
 
 | 항목 | 분류기 | 세그멘터 |

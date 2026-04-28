@@ -65,6 +65,13 @@ CLS3_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+CLS2_PATTERN = re.compile(
+    r"Epoch\s+(\d+)/(\d+)\s+\|\s+train loss=([-\d.]+)\s+acc=([-\d.]+)\s+\|\s+"
+    r"val loss=([-\d.]+)\s+score=([-\d.]+)\s+\S+\s+\|\s+"
+    r"acc=([-\d.]+)\s+macro_f1=([-\d.]+)\s+hem_rec=([-\d.]+)\s+hem_f1=([-\d.]+)\s+spec=([-\d.]+)",
+    re.IGNORECASE,
+)
+
 
 def _safe_float(value: str) -> float:
     try:
@@ -156,6 +163,26 @@ def parse_monitor_state(log_path: str):
                 "remaining": eta_match.group(3).strip(),
                 "finish_at": eta_match.group(4).strip(),
             }
+            continue
+
+        mc2 = CLS2_PATTERN.search(line)
+        if mc2:
+            row = {
+                "kind": "cls2",
+                "epoch": int(mc2.group(1)),
+                "total": int(mc2.group(2)),
+                "tl": _safe_float(mc2.group(3)),
+                "train_main": _safe_float(mc2.group(4)),
+                "vl": _safe_float(mc2.group(5)),
+                "val_main": _safe_float(mc2.group(6)),
+                "val_acc": _safe_float(mc2.group(7)),
+                "macro_f1": _safe_float(mc2.group(8)),
+                "hem_rec": _safe_float(mc2.group(9)),
+                "hem_f1": _safe_float(mc2.group(10)),
+                "spec": _safe_float(mc2.group(11)),
+            }
+            if _valid_metric_row(row):
+                rows.append(row)
             continue
 
         mc = CLS3_PATTERN.search(line)
@@ -261,7 +288,7 @@ def render(state, total_epochs=DEFAULT_TOTAL_EPOCHS):
     bar_len = 40
     filled = int(bar_len * pct / 100)
     kind = rows[-1]["kind"] if rows else "seg3"
-    if kind == "cls3":
+    if kind in ("cls2", "cls3"):
         metric_label = "Val Score"
     else:
         metric_label = "Val Dice Lesion" if kind == "seg3" else "Val Dice Positive"
@@ -311,7 +338,34 @@ def render(state, total_epochs=DEFAULT_TOTAL_EPOCHS):
 
     table = Table(box=box.SIMPLE_HEAVY, border_style="blue", header_style="bold cyan", show_edge=True)
 
-    if kind == "cls3":
+    if kind == "cls2":
+        table.add_column("Epoch", justify="right", style="cyan", width=7)
+        table.add_column("Train Loss", justify="right", width=11)
+        table.add_column("Train Acc", justify="right", width=10)
+        table.add_column("Val Loss", justify="right", width=10)
+        table.add_column("Score", justify="right", width=8)
+        table.add_column("Val Acc", justify="right", width=8)
+        table.add_column("Macro F1", justify="right", width=9)
+        table.add_column("HEM Rec", justify="right", width=9)
+        table.add_column("Spec", justify="right", width=8)
+        table.add_column(" ", justify="center", width=3)
+
+        for row in rows[-20:]:
+            is_best = row["epoch"] == best_ep
+            d_color = "green" if row["val_main"] >= 0.7 else "yellow" if row["val_main"] >= 0.5 else "red"
+            table.add_row(
+                f"[bold cyan]{row['epoch']}[/bold cyan]" if is_best else str(row["epoch"]),
+                f"{row['tl']:.4f}",
+                f"{row['train_main']:.4f}",
+                f"{row['vl']:.4f}",
+                f"[{d_color} bold]{row['val_main']:.4f}[/{d_color} bold]",
+                f"{row['val_acc']:.4f}",
+                f"{row['macro_f1']:.4f}",
+                f"{row['hem_rec']:.4f}",
+                f"{row['spec']:.4f}",
+                "[green]★[/green]" if is_best else "",
+            )
+    elif kind == "cls3":
         table.add_column("Epoch", justify="right", style="cyan", width=7)
         table.add_column("Train Loss", justify="right", width=11)
         table.add_column("Train Acc", justify="right", width=10)

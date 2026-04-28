@@ -23,6 +23,18 @@ class StrokeSegmentor(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.unet(x)
 
+    def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
+        """확률 맵 반환 (B, 1, H, W) — 0~1"""
+        return torch.sigmoid(self.forward(x))
+
+    def freeze_encoder(self):
+        for p in self.unet.encoder.parameters():
+            p.requires_grad = False
+
+    def unfreeze_encoder(self):
+        for p in self.unet.encoder.parameters():
+            p.requires_grad = True
+
     def predict_mask(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
         """이진 마스크 반환 (B, 1, H, W) — 0 또는 1"""
         logits = self.forward(x)

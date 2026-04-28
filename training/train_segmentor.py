@@ -33,7 +33,9 @@ from training.metrics import (
     merge_segmentation_stats,
     segmentation_stats,
 )
-from training.runtime import clear_device_cache, configure_torch_runtime, runtime_summary
+from training.runtime import clear_device_cache, configure_torch_runtime, runtime_summary, suppress_noisy_runtime_warnings
+
+suppress_noisy_runtime_warnings()
 
 
 def get_device() -> torch.device:
@@ -149,8 +151,6 @@ def main(args):
     batch_size    = args.batch_size or s["batch_size"]
     lr            = args.lr         or s["learning_rate"]
     image_size    = s["image_size"]
-    num_workers   = d.get("num_workers", 6)
-    prefetch      = d.get("prefetch_factor", 4)
     freeze_epochs = min(s.get("freeze_epochs", 5), epochs)
     save_path     = Path(s["save_path"])
     save_path.mkdir(parents=True, exist_ok=True)
@@ -170,8 +170,6 @@ def main(args):
         image_size=image_size,
         batch_size=batch_size,
         bhsd_processed_dir=d.get("bhsd_processed_dir", "./data/processed/bhsd"),
-        num_workers=num_workers,
-        prefetch_factor=prefetch,
     )
     print(f"학습: {len(train_loader.dataset)}개  검증: {len(val_loader.dataset)}개\n")
 
@@ -259,5 +257,6 @@ if __name__ == "__main__":
     parser.add_argument("--epochs",     type=int,   default=None)
     parser.add_argument("--batch_size", type=int,   default=None)
     parser.add_argument("--lr",         type=float, default=None)
+    parser.add_argument("--resume",     action="store_true", help="(예약됨) 체크포인트 재개")
     args = parser.parse_args()
     main(args)
