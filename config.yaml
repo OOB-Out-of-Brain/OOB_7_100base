@@ -1,5 +1,11 @@
 device: auto  # auto: mps > cuda > cpu 순서로 자동 선택
 
+project:
+  direction: emergency_triage_assist
+  scope: research_education_only
+  primary_workflow: CT upload → binary hemorrhage triage → lesion overlay → optional LLM report
+  clinical_boundary: 전문의 판독 전 응급실 초기 판단 보조이며 임상 진단을 대체하지 않음
+
 data:
   num_workers: 0        # albumentations 멀티프로세싱 피클 충돌 방지
   aisd_path: ./data/raw/aisd
@@ -7,13 +13,14 @@ data:
   processed_path: ./data/processed
   ct_hemorrhage_path: ./data/raw/ct_hemorrhage/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.3.1
   ct_hemorrhage_raw_path: ./data/raw/ct_hemorrhage
+  bhsd_processed_dir: ./data/processed/bhsd
 
 classifier:
   model_name: efficientnet_b4
   num_classes: 2
   class_names: ["normal", "hemorrhagic"]
   image_size: 240
-  batch_size: 64
+  batch_size: 32               # M4 Pro 24GB MPS 안정 기본값. 메모리 여유 확인 후 48/64 시도.
   epochs: 50
   learning_rate: 0.001
   weight_decay: 0.0001
@@ -27,7 +34,9 @@ classifier:
   best_metric: macro_f1
   min_hemorrhagic_recall: 0.85
   min_specificity: 0.95       # 0.90→0.95: FP 억제 → CQ500 specificity 개선 목표
-  threshold_sweep_steps: 19  # 0.05 ~ 0.95
+  threshold_min: 0.2          # sweep 범위 하한
+  threshold_max: 0.7          # sweep 범위 상한
+  threshold_sweep_steps: 19   # threshold_min~threshold_max 구간을 19단계로 분할
   early_stopping_patience: 15
   save_path: ./checkpoints/classifier
 
@@ -61,3 +70,37 @@ visualization:
   lesion_color: [255, 100, 100]
   overlay_alpha: 0.45
   output_dpi: 150
+
+llm:
+  mode: fast
+  model: llama3.2-vision:11b
+  host: http://localhost:11434
+  modes:
+    fast:
+      include_image: true
+      max_side: 384
+      jpeg_quality: 70
+      num_predict: 220
+      temperature: 0.2
+      timeout: 45
+    balanced:
+      include_image: true
+      max_side: 512
+      jpeg_quality: 80
+      num_predict: 384
+      temperature: 0.25
+      timeout: 90
+    detailed:
+      include_image: true
+      max_side: 768
+      jpeg_quality: 85
+      num_predict: 700
+      temperature: 0.3
+      timeout: 180
+    text_only:
+      include_image: false
+      max_side: 0
+      jpeg_quality: 0
+      num_predict: 220
+      temperature: 0.2
+      timeout: 45

@@ -18,8 +18,10 @@ from PIL import Image
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import yaml
 
 from data.combined_dataset import build_combined_dataloaders
+from data.ct_hemorrhage_io import load_ct_image, ref_name
 from inference.pipeline import StrokePipeline
 
 
@@ -32,6 +34,8 @@ SUBDIRS = {
 }
 for p in SUBDIRS.values():
     p.mkdir(parents=True, exist_ok=True)
+
+_CFG = yaml.safe_load(open(Path(__file__).parent.parent / "config.yaml"))
 
 
 def save_panel(img, overlay, out_path: Path, title: str, title_color: str):
@@ -50,9 +54,9 @@ def save_panel(img, overlay, out_path: Path, title: str, title_color: str):
 def main():
     print("Val set 로딩...")
     _, val_loader, _ = build_combined_dataloaders(
-        ct_root="./data/raw/ct_hemorrhage/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.0.0",
-        tekno21_cache="./data/raw/tekno21",
-        image_size=224, batch_size=1, num_workers=0,
+        ct_root=_CFG["data"]["ct_hemorrhage_path"],
+        tekno21_cache=_CFG["data"]["tekno21_cache"],
+        image_size=_CFG["classifier"]["image_size"], batch_size=1, num_workers=0,
     )
     val_ds = val_loader.dataset
     samples = val_ds.samples
@@ -68,8 +72,8 @@ def main():
 
     for i, (source, ref, gt) in enumerate(samples):
         if source in ("ct", "bhsd"):
-            img = np.array(Image.open(ref).convert("RGB"))
-            short = Path(ref).stem[:20]
+            img = load_ct_image(ref)
+            short = ref_name(ref)[:20]
         else:
             item = hf[ref]
             im = item["image"]

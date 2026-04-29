@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OOB — 뇌 CT 출혈 분석</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface2: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --danger: #f85149;
+  --warning: #d29922;
+  --success: #3fb950;
+  --hem: #ff6b6b;
+  --normal: #56d364;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+/* ── layout ── */
+.app { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 56px 1fr; min-height: 100vh; }
+.topbar { grid-column: 1/-1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; }
+.topbar h1 { font-size: 15px; font-weight: 600; }
+.topbar .tag { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(88,166,255,.15); color: var(--accent); border: 1px solid rgba(88,166,255,.3); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
+.status-dot.ok { background: var(--success); }
+.status-dot.err { background: var(--danger); }
+.status-label { font-size: 12px; color: var(--text-muted); }
+
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+.main { display: flex; flex-direction: column; overflow-y: auto; }
+
+/* ── panels ── */
+.panel { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); margin: 12px; padding: 16px; }
+.panel-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 12px; }
+
+/* ── upload ── */
+.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 32px 16px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: rgba(88,166,255,.05); }
+.upload-zone input { display: none; }
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-zone p { color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.upload-zone .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+/* ── preview image ── */
+.img-preview { width: 100%; border-radius: var(--radius); display: none; margin-top: 12px; }
+
+/* ── analyze button ── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 18px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity .15s; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #000; width: 100%; margin-top: 12px; padding: 10px; }
+.btn-primary:hover:not(:disabled) { opacity: .85; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.spinner { width: 14px; height: 14px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── result cards ── */
+.result-cards { display: grid; gap: 10px; margin-bottom: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.card.hem { border-color: rgba(248,81,73,.4); }
+.card.normal { border-color: rgba(63,185,80,.4); }
+
+.class-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; }
+.badge-hem { background: rgba(248,81,73,.2); color: var(--hem); border: 1px solid rgba(248,81,73,.4); }
+.badge-normal { background: rgba(63,185,80,.2); color: var(--normal); border: 1px solid rgba(63,185,80,.4); }
+
+.conf-bar-wrap { background: var(--surface2); border-radius: 4px; height: 6px; margin: 8px 0 4px; overflow: hidden; }
+.conf-bar { height: 100%; border-radius: 4px; transition: width .5s ease; }
+.bar-hem { background: var(--hem); }
+.bar-normal { background: var(--normal); }
+
+.metric-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.metric-row:last-child { border-bottom: none; }
+.metric-key { color: var(--text-muted); }
+.metric-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── overlay display ── */
+.overlay-wrap { position: relative; text-align: center; }
+.overlay-img { max-width: 100%; max-height: 480px; border-radius: var(--radius); border: 1px solid var(--border); }
+.overlay-toggle { position: absolute; top: 8px; right: 8px; }
+
+/* ── LLM panel ── */
+.llm-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; min-height: 100px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; color: var(--text); }
+.llm-box .cursor { display: inline-block; width: 2px; height: 14px; background: var(--accent); vertical-align: middle; animation: blink .8s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.llm-placeholder { color: var(--text-muted); font-style: italic; }
+.llm-meta { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+/* ── chat ── */
+.chat-history { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; max-height: 320px; overflow-y: auto; }
+.chat-msg { padding: 10px 14px; border-radius: var(--radius); font-size: 13px; line-height: 1.6; }
+.chat-user { background: rgba(88,166,255,.12); border: 1px solid rgba(88,166,255,.2); align-self: flex-end; max-width: 85%; white-space: pre-wrap; }
+.chat-assistant { background: var(--surface2); border: 1px solid var(--border); max-width: 85%; white-space: pre-wrap; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 12px; color: var(--text); font-size: 13px; resize: none; outline: none; }
+.chat-input:focus { border-color: var(--accent); }
+.chat-input::placeholder { color: var(--text-muted); }
+
+/* ── states ── */
+.hidden { display: none !important; }
+.error-msg { color: var(--danger); font-size: 13px; margin-top: 8px; }
+.section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; margin: 16px 0 8px; }
+
+/* ── disclaimer ── */
+.disclaimer { background: rgba(210,153,34,.08); border: 1px solid rgba(210,153,34,.25); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; color: var(--warning); line-height: 1.5; margin: 12px; }
+
+/* ── scrollbar ── */
+::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+@media (max-width: 768px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- topbar -->
+  <header class="topbar">
+    <span style="font-size:20px">🧠</span>
+    <h1>OOB — 뇌 CT 출혈 분석</h1>
+    <span class="tag">Research</span>
+    <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="statusLabel" class="status-label">확인 중...</span>
+    </div>
+  </header>
+
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="panel-title">이미지 업로드</div>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept="image/*">
+        <div class="upload-icon">📂</div>
+        <p>CT 이미지를 드래그하거나 클릭하여 선택</p>
+        <p class="hint">PNG · JPG · BMP · TIFF 지원</p>
+      </div>
+      <img id="imgPreview" class="img-preview" alt="preview">
+      <p id="fileName" style="font-size:12px; color:var(--text-muted); margin-top:6px;"></p>
+      <p id="uploadError" class="error-msg hidden"></p>
+      <button class="btn btn-primary" id="analyzeBtn" disabled>
+        <span id="analyzeBtnText">분석 실행</span>
+        <span class="spinner hidden" id="analyzeSpinner"></span>
+      </button>
+    </div>
+
+    <div class="panel" id="resultSidebar" style="display:none;">
+      <div class="panel-title">분석 결과</div>
+      <div id="classCards" class="result-cards"></div>
+    </div>
+
+    <div class="disclaimer">
+      ⚠ 본 결과는 연구·교육 목적의 보조 정보이며 의학적 진단을 대체하지 않습니다.
+      응급 시 119 또는 의료진에게 즉시 문의하세요.
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main class="main">
+
+    <!-- overlay -->
+    <div class="panel" id="overlayPanel" style="display:none;">
+      <div class="panel-title">병변 오버레이</div>
+      <div class="overlay-wrap">
+        <img id="overlayImg" class="overlay-img" alt="overlay">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn btn-ghost" id="toggleOrig" style="font-size:12px;">원본 보기</button>
+        <button class="btn btn-ghost" id="toggleOverlay" style="font-size:12px;">오버레이 보기</button>
+      </div>
+    </div>
+
+    <!-- LLM panel -->
+    <div class="panel" id="llmPanel" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <div class="panel-title" style="margin-bottom:0;">LLM 판독 (LLaMA 3.2 Vision)</div>
+        <button class="btn btn-ghost" id="llmRetryBtn" style="font-size:12px; display:none;">다시 요청</button>
+      </div>
+      <div class="llm-box" id="llmBox">
+        <span class="llm-placeholder">분석 후 자동으로 LLM 판독을 시작합니다...</span>
+      </div>
+      <div class="llm-meta hidden" id="llmMeta"></div>
+    </div>
+
+    <!-- chat -->
+    <div class="panel" id="chatPanel" style="display:none;">
+      <div class="panel-title">후속 질문</div>
+      <div class="chat-history" id="chatHistory"></div>
+      <div class="chat-input-row">
+        <textarea class="chat-input" id="chatInput" rows="2" placeholder="예: 이 병변이 위험한가요? 추가 검사가 필요한가요?"></textarea>
+        <button class="btn btn-primary" id="chatSendBtn" style="width:70px; height:auto; margin-top:0;">
+          <span id="chatBtnText">전송</span>
+          <span class="spinner hidden" id="chatSpinner"></span>
+        </button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+let currentSessionId = null;
+let origB64 = null;
+let overlayB64 = null;
+let showingOrig = false;
+let llmModel = 'llama3.2-vision:11b';
+let llmStartTime = null;
+
+// ── status check ────────────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const dot = document.getElementById('statusDot');
+    const lbl = document.getElementById('statusLabel');
+    if (d.checkpoints) {
+      dot.className = 'status-dot ok';
+      lbl.textContent = d.ollama ? '모델 준비 완료 · Ollama 연결됨' : '모델 준비 완료 · Ollama 없음';
+    } else {
+      dot.className = 'status-dot err';
+      lbl.textContent = '체크포인트 없음 — 먼저 학습을 실행하세요';
+    }
+  } catch {
+    document.getElementById('statusDot').className = 'status-dot err';
+    document.getElementById('statusLabel').textContent = '서버 연결 실패';
+  }
+}
+checkStatus();
+
+// ── upload ──────────────────────────────────────────────────────────────────
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+const analyzeBtn = document.getElementById('analyzeBtn');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(f) {
+  document.getElementById('uploadError').classList.add('hidden');
+  document.getElementById('fileName').textContent = `${f.name}  (${(f.size/1024).toFixed(0)} KB)`;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const prev = document.getElementById('imgPreview');
+    prev.src = e.target.result;
+    prev.style.display = 'block';
+  };
+  reader.readAsDataURL(f);
+  analyzeBtn.disabled = false;
+}
+
+// ── analyze ─────────────────────────────────────────────────────────────────
+analyzeBtn.addEventListener('click', runAnalysis);
+
+async function runAnalysis() {
+  const f = fileInput.files[0];
+  if (!f) return;
+
+  setAnalyzing(true);
+  resetResults();
+
+  const form = new FormData();
+  form.append('file', f);
+
+  let data;
+  try {
+    const resp = await fetch('/api/analyze', { method: 'POST', body: form });
+    data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || resp.statusText);
+  } catch(e) {
+    showError(e.message);
+    setAnalyzing(false);
+    return;
+  }
+
+  currentSessionId = data.session_id;
+  origB64 = data.orig_b64;
+  overlayB64 = data.overlay_b64 || data.orig_b64;
+
+  renderResults(data);
+  setAnalyzing(false);
+
+  // start LLM stream
+  document.getElementById('llmPanel').style.display = '';
+  document.getElementById('chatPanel').style.display = '';
+  startLLMStream(data.session_id);
+}
+
+function setAnalyzing(on) {
+  analyzeBtn.disabled = on;
+  document.getElementById('analyzeBtnText').textContent = on ? '분석 중...' : '분석 실행';
+  document.getElementById('analyzeSpinner').classList.toggle('hidden', !on);
+}
+
+function showError(msg) {
+  const el = document.getElementById('uploadError');
+  el.textContent = '오류: ' + msg;
+  el.classList.remove('hidden');
+}
+
+function resetResults() {
+  document.getElementById('resultSidebar').style.display = 'none';
+  document.getElementById('overlayPanel').style.display = 'none';
+  document.getElementById('llmPanel').style.display = 'none';
+  document.getElementById('chatPanel').style.display = 'none';
+  document.getElementById('chatHistory').innerHTML = '';
+  document.getElementById('llmBox').innerHTML = '<span class="llm-placeholder">LLM 판독 준비 중...</span>';
+  document.getElementById('llmMeta').classList.add('hidden');
+  document.getElementById('llmRetryBtn').style.display = 'none';
+}
+
+// ── render results ───────────────────────────────────────────────────────────
+function renderResults(data) {
+  // sidebar cards
+  const isHem = data.class_name === 'hemorrhagic';
+  const cardClass = isHem ? 'hem' : 'normal';
+  const badgeClass = isHem ? 'badge-hem' : 'badge-normal';
+  const barClass = isHem ? 'bar-hem' : 'bar-normal';
+  const label = isHem ? '출혈 의심' : '정상';
+  const confPct = Math.round(data.confidence * 100);
+
+  const probs = Object.entries(data.class_probs || {})
+    .map(([k,v]) => `<div class="metric-row"><span class="metric-key">${k}</span><span class="metric-val">${(v*100).toFixed(1)}%</span></div>`)
+    .join('');
+
+  const lesionRows = data.lesion_area_px > 0 ? `
+    <div class="metric-row"><span class="metric-key">병변 면적</span><span class="metric-val">${data.lesion_area_pct.toFixed(1)}%</span></div>
+    <div class="metric-row"><span class="metric-key">병변 픽셀</span><span class="metric-val">${data.lesion_area_px.toLocaleString()} px</span></div>
+    <div class="metric-row"><span class="metric-key">컴포넌트</span><span class="metric-val">${data.kept_component_count}/${data.lesion_component_count}</span></div>
+    <div class="metric-row"><span class="metric-key">최대 병변 확률</span><span class="metric-val">${(data.max_component_mean_prob*100).toFixed(1)}%</span></div>
+  ` : '<div style="color:var(--text-muted); font-size:13px;">병변 감지 없음</div>';
+
+  const overrideRow = data.override_reason
+    ? `<div class="metric-row" style="margin-top:8px;"><span class="metric-key" style="color:var(--warning);">Override</span><span class="metric-val" style="font-size:11px; color:var(--warning);">세그멘테이션</span></div>`
+    : '';
+
+  document.getElementById('classCards').innerHTML = `
+    <div class="card ${cardClass}">
+      <div class="class-badge ${badgeClass}">${label}</div>
+      <div style="font-size:28px; font-weight:700; margin:4px 0;">${confPct}<span style="font-size:14px; font-weight:400;">%</span></div>
+      <div style="font-size:12px; color:var(--text-muted);">분류 신뢰도</div>
+      <div class="conf-bar-wrap"><div class="conf-bar ${barClass}" style="width:${confPct}%"></div></div>
+      ${probs}
+      ${overrideRow}
+    </div>
+    <div class="card">
+      <div class="panel-title">병변 분석</div>
+      ${lesionRows}
+    </div>
+  `;
+  document.getElementById('resultSidebar').style.display = '';
+
+  // overlay
+  if (overlayB64) {
+    document.getElementById('overlayImg').src = 'data:image/jpeg;base64,' + overlayB64;
+    document.getElementById('overlayPanel').style.display = '';
+    showingOrig = false;
+  }
+}
+
+// ── overlay toggle ───────────────────────────────────────────────────────────
+document.getElementById('toggleOrig').addEventListener('click', () => {
+  if (origB64) { document.getElementById('overlayImg').src = 'data:image/jpeg;base64,' + origB64; showingOrig = true; }
+});
+document.getElementById('toggleOverlay').addEventListener('click', () => {
+  if (overlayB64) { document.getElementById('overlayImg').src = 'data:image/jpeg;base64,' + overlayB64; showingOrig = false; }
+});
+
+// ── LLM streaming ────────────────────────────────────────────────────────────
+function startLLMStream(sessionId) {
+  llmStartTime = Date.now();
+  const box = document.getElementById('llmBox');
+  box.innerHTML = '';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  box.appendChild(cursor);
+
+  const retryBtn = document.getElementById('llmRetryBtn');
+  retryBtn.style.display = 'none';
+
+  const es = new EventSource(`/api/stream_llm/${sessionId}?model=${encodeURIComponent(llmModel)}`);
+  let text = '';
+
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.error) {
+      box.innerHTML = `<span style="color:var(--danger);">LLM 오류: ${d.error}</span>`;
+      es.close();
+      retryBtn.style.display = '';
+      return;
+    }
+    if (d.done) {
+      box.removeChild(cursor);
+      const elapsed = ((Date.now() - llmStartTime) / 1000).toFixed(1);
+      const meta = document.getElementById('llmMeta');
+      meta.textContent = `모델: ${llmModel} · 응답 시간: ${elapsed}s`;
+      meta.classList.remove('hidden');
+      retryBtn.style.display = '';
+      es.close();
+      return;
+    }
+    if (d.token) {
+      text += d.token;
+      box.textContent = text;
+      box.appendChild(cursor);
+      box.scrollTop = box.scrollHeight;
+    }
+  };
+
+  es.onerror = () => {
+    if (text === '') {
+      box.innerHTML = '<span style="color:var(--text-muted);">Ollama 서버 없음 — LLM 판독을 건너뜁니다.</span>';
+    }
+    es.close();
+    retryBtn.style.display = '';
+  };
+}
+
+document.getElementById('llmRetryBtn').addEventListener('click', () => {
+  if (currentSessionId) startLLMStream(currentSessionId);
+});
+
+// ── chat ─────────────────────────────────────────────────────────────────────
+document.getElementById('chatSendBtn').addEventListener('click', sendChat);
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const q = input.value.trim();
+  if (!q || !currentSessionId) return;
+
+  input.value = '';
+  setChatSending(true);
+
+  const history = document.getElementById('chatHistory');
+
+  const userEl = document.createElement('div');
+  userEl.className = 'chat-msg chat-user';
+  userEl.textContent = q;
+  history.appendChild(userEl);
+
+  const assistEl = document.createElement('div');
+  assistEl.className = 'chat-msg chat-assistant';
+  assistEl.textContent = '';
+  history.appendChild(assistEl);
+  history.scrollTop = history.scrollHeight;
+
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  assistEl.appendChild(cursor);
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ session_id: currentSessionId, question: q, model: llmModel }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let text = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const d = JSON.parse(line.slice(6));
+        if (d.error) { assistEl.textContent = `오류: ${d.error}`; break; }
+        if (d.done) break;
+        if (d.token) {
+          text += d.token;
+          assistEl.textContent = text;
+          assistEl.appendChild(cursor);
+          history.scrollTop = history.scrollHeight;
+        }
+      }
+    }
+    assistEl.removeChild(cursor);
+  } catch(e) {
+    assistEl.textContent = `오류: ${e.message}`;
+  }
+
+  setChatSending(false);
+}
+
+function setChatSending(on) {
+  document.getElementById('chatSendBtn').disabled = on;
+  document.getElementById('chatBtnText').textContent = on ? '' : '전송';
+  document.getElementById('chatSpinner').classList.toggle('hidden', !on);
+}
+</script>
+</body>
+</html>

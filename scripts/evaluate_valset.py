@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from data.combined_dataset import build_combined_dataloaders, CLASS_NAMES
+from data.ct_hemorrhage_io import load_ct_image, ref_name
 from inference.pipeline import StrokePipeline
 
 _cfg = yaml.safe_load(open(Path(__file__).parent.parent / "config.yaml"))
@@ -78,8 +79,8 @@ def main():
     for i, (source, ref, gt) in enumerate(samples):
         # 이미지 numpy로
         if source in ("ct", "bhsd"):
-            img = np.array(Image.open(ref).convert("RGB"))
-            name = Path(ref).name
+            img = load_ct_image(ref)
+            name = ref_name(ref)
         else:  # tekno21
             item = hf[ref]
             im = item["image"]

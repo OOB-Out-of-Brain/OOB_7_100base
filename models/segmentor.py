@@ -5,11 +5,12 @@ import segmentation_models_pytorch as smp
 
 class StrokeSegmentor(nn.Module):
     """
-    ResNet-34 인코더 기반 U-Net 허혈성 병변 분할 모델.
+    설정된 encoder 기반 U-Net 뇌 출혈 병변 분할 모델.
+    기본 encoder: efficientnet-b4 (config.yaml 기준).
     입력: (B, 3, H, W)  출력: (B, 1, H, W) 로짓
     """
 
-    def __init__(self, encoder_name: str = "resnet34",
+    def __init__(self, encoder_name: str = "efficientnet-b4",
                  encoder_weights: str = "imagenet"):
         super().__init__()
         self.unet = smp.Unet(

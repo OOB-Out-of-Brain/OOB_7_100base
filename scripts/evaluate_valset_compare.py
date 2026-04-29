@@ -15,8 +15,10 @@ from PIL import Image
 import torch
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import yaml
 
 from data.combined_dataset import build_combined_dataloaders
+from data.ct_hemorrhage_io import load_ct_image
 from models.classifier import StrokeClassifier
 from models.segmentor import StrokeSegmentor
 
@@ -26,6 +28,10 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+
+_CFG = yaml.safe_load(open(Path(__file__).parent.parent / "config.yaml"))
+_CLS_IMAGE_SIZE = _CFG["classifier"]["image_size"]
+_SEG_IMAGE_SIZE = _CFG["segmentor"]["image_size"]
 
 
 def cm_metrics(y_true, y_pred):
@@ -49,9 +55,9 @@ def main():
 
     # Val set 로드
     _, val_loader, _ = build_combined_dataloaders(
-        ct_root="./data/raw/ct_hemorrhage/computed-tomography-images-for-intracranial-hemorrhage-detection-and-segmentation-1.0.0",
-        tekno21_cache="./data/raw/tekno21",
-        image_size=224, batch_size=1, num_workers=0,
+        ct_root=_CFG["data"]["ct_hemorrhage_path"],
+        tekno21_cache=_CFG["data"]["tekno21_cache"],
+        image_size=_CLS_IMAGE_SIZE, batch_size=1, num_workers=0,
     )
     val_ds = val_loader.dataset
     samples = val_ds.samples
@@ -76,12 +82,12 @@ def main():
 
     # Transforms
     cls_tf = A.Compose([
-        A.Resize(224, 224),
+        A.Resize(_CLS_IMAGE_SIZE, _CLS_IMAGE_SIZE),
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
     ])
     seg_tf = A.Compose([
-        A.Resize(256, 256),
+        A.Resize(_SEG_IMAGE_SIZE, _SEG_IMAGE_SIZE),
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
     ])
@@ -97,7 +103,7 @@ def main():
     with torch.no_grad():
         for i, (source, ref, gt) in enumerate(samples):
             if source in ("ct", "bhsd"):
-                img = np.array(Image.open(ref).convert("RGB"))
+                img = load_ct_image(ref)
             else:
                 item = hf[ref]
                 im = item["image"]

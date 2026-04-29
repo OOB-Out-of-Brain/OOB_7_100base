@@ -19,3 +19,6 @@ rich
 pydicom
 kaggle==1.7.4.5
 ollama>=0.3.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9

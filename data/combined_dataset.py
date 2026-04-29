@@ -13,7 +13,6 @@ CT Hemorrhage:
 
 from pathlib import Path
 import numpy as np
-import pandas as pd
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
@@ -21,6 +20,15 @@ from datasets import load_dataset
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from sklearn.model_selection import train_test_split
+
+from data.ct_hemorrhage_io import (
+    has_nifti_layout,
+    legacy_image_path,
+    load_ct_image,
+    nifti_image_ref,
+    ref_exists,
+    read_diagnosis,
+)
 
 
 CLASS_NAMES = ["normal", "hemorrhagic"]
@@ -34,7 +42,8 @@ def _transforms(image_size: int, split: str) -> A.Compose:
             A.Resize(image_size, image_size),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.3),
-            A.Affine(translate_percent=0.05, scale=(0.9, 1.1), rotate=(-15, 15), p=0.4),
+            A.Affine(translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)},
+                     scale=(0.9, 1.1), rotate=(-15, 15), p=0.4),
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.4),
             A.GaussNoise(p=0.3),
             A.CLAHE(clip_limit=4.0, tile_grid_size=(8, 8), p=0.3),
@@ -66,7 +75,9 @@ class CombinedDataset(Dataset):
 
     def __getitem__(self, idx):
         source, ref, label = self.samples[idx]
-        if source == "ct" or source == "bhsd":
+        if source == "ct":
+            image = load_ct_image(ref)
+        elif source == "bhsd":
             image = np.array(Image.open(ref).convert("RGB"))
         else:  # tekno21
             item = self.hf[ref]
@@ -90,24 +101,24 @@ class CombinedDataset(Dataset):
 
 def _collect_ct(data_root):
     root = Path(data_root)
-    csv_path = root / "hemorrhage_diagnosis_raw_ct.csv"
-    if not csv_path.exists():
-        csv_path = root / "hemorrhage_diagnosis.csv"
-    df = pd.read_csv(csv_path)
-    df.columns = df.columns.str.strip()
+    df = read_diagnosis(root)
+    nifti_layout = has_nifti_layout(root)
 
     samples = []
     missing = 0
-    for _, row in df.iterrows():
-        pid_int = int(row["PatientNumber"])
-        pid_str = str(pid_int).zfill(3)
-        slice_num = int(row["SliceNumber"])
-        label = 0 if int(row["No_Hemorrhage"]) == 1 else 1
-        img_path = root / "Patients_CT" / pid_str / "brain" / f"{slice_num}.jpg"
-        if img_path.exists():
-            samples.append(("ct", img_path, label, pid_int))
-        else:
-            missing += 1
+    for pid_int, patient_df in df.groupby("PatientNumber", sort=True):
+        patient_df = patient_df.sort_values("SliceNumber")
+        for slice_idx, (_, row) in enumerate(patient_df.iterrows()):
+            slice_num = int(row["SliceNumber"])
+            label = 0 if int(row["No_Hemorrhage"]) == 1 else 1
+            if nifti_layout:
+                img_ref = nifti_image_ref(root, int(pid_int), slice_idx)
+            else:
+                img_ref = legacy_image_path(root, int(pid_int), slice_num)
+            if ref_exists(img_ref):
+                samples.append(("ct", img_ref, label, int(pid_int)))
+            else:
+                missing += 1
     if missing:
         print(f"  ⚠️  CT Hemorrhage: {missing}개 이미지 파일 없음 (CSV 항목 무시됨)")
     return samples

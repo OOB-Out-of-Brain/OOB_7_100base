@@ -1,5 +1,5 @@
 """
-뇌 CT 출혈 분석 데모.
+뇌 CT 출혈 triage 보조 데모.
 
 사용법:
     python demo.py --image path/to/ct.png
@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -21,7 +22,27 @@ from inference.pipeline import StrokePipeline
 from inference.visualization import save_visualization
 
 
+def _load_config() -> dict:
+    config_path = Path("config.yaml")
+    if not config_path.exists():
+        return {}
+    with config_path.open() as f:
+        return yaml.safe_load(f) or {}
+
+
+def _normalize_llm_mode(mode: str) -> str:
+    return mode.replace("-", "_")
+
+
+def _llm_arg(args, name: str, mode_settings: dict):
+    value = getattr(args, f"llm_{name}")
+    return mode_settings.get(name) if value is None else value
+
+
 def main(args):
+    cfg = _load_config()
+    llm_cfg = cfg.get("llm", {})
+
     cls_ckpt = args.cls_ckpt or "checkpoints/classifier/best_classifier.pth"
     seg_ckpt = args.seg_ckpt or "checkpoints/segmentor/best_segmentor.pth"
 
@@ -58,18 +79,29 @@ def main(args):
     print(f"\n시각화 저장: {output_path}")
 
     if args.llm:
-        print("\nLLM 판독 실행 중...")
+        mode = _normalize_llm_mode(args.llm_mode or llm_cfg.get("mode", "fast"))
+        mode_settings = dict(llm_cfg.get("modes", {}).get(mode, {}))
+        include_image = False if args.llm_no_image else mode_settings.get("include_image")
+
+        print(f"\nLLM 보조 리포트 실행 중... (mode={mode})")
         from inference.llm_reporter import LLMReporter
         reporter = LLMReporter(
-            model=args.llm_model,
-            host=args.llm_host,
+            model=args.llm_model or llm_cfg.get("model", "llama3.2-vision:11b"),
+            host=args.llm_host or llm_cfg.get("host", "http://localhost:11434"),
+            mode=mode,
+            timeout=_llm_arg(args, "timeout", mode_settings),
+            max_side=_llm_arg(args, "max_side", mode_settings),
+            jpeg_quality=_llm_arg(args, "jpeg_quality", mode_settings),
+            num_predict=_llm_arg(args, "num_predict", mode_settings),
+            temperature=_llm_arg(args, "temperature", mode_settings),
+            include_image=include_image,
         )
         if not reporter.is_available():
-            print(f"  Ollama 서버 또는 모델({args.llm_model})을 찾을 수 없습니다.")
+            print(f"  Ollama 서버 또는 모델({reporter.model})을 찾을 수 없습니다.")
             print("  설정 방법:")
             print("    brew install ollama")
             print("    ollama serve")
-            print(f"    ollama pull {args.llm_model}")
+            print(f"    ollama pull {reporter.model}")
         else:
             report = reporter.analyze(result, overlay_image=result.overlay_image, original_image=orig_np)
             print(report)
@@ -81,16 +113,23 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="뇌 CT 출혈 분석 데모")
+    parser = argparse.ArgumentParser(description="뇌 CT 출혈 triage 보조 데모")
     parser.add_argument("--image", required=True, help="CT 이미지 경로")
     parser.add_argument("--output", default=None, help="시각화 PNG 저장 경로")
     parser.add_argument("--cls_ckpt", default=None, help="분류 모델 체크포인트")
     parser.add_argument("--seg_ckpt", default=None, help="분할 모델 체크포인트")
 
     llm = parser.add_argument_group("LLM 옵션")
-    llm.add_argument("--llm", action="store_true", help="LLM 판독 활성화 (LLaMA 3.2 Vision)")
-    llm.add_argument("--llm-model", default="llama3.2-vision:11b", help="Ollama 모델명")
-    llm.add_argument("--llm-host", default="http://localhost:11434", help="Ollama 서버 주소")
+    llm.add_argument("--llm", action="store_true", help="LLM 보조 리포트 활성화 (LLaMA 3.2 Vision)")
+    llm.add_argument("--llm-model", default=None, help="Ollama 모델명 (기본: config.yaml)")
+    llm.add_argument("--llm-host", default=None, help="Ollama 서버 주소 (기본: config.yaml)")
+    llm.add_argument("--llm-mode", default=None, help="fast, balanced, detailed, text-only")
+    llm.add_argument("--llm-no-image", action="store_true", help="이미지 없이 pipeline 수치만 LLM에 전달")
+    llm.add_argument("--llm-timeout", type=int, default=None, help="LLM timeout 초")
+    llm.add_argument("--llm-max-side", type=int, default=None, help="LLM 입력 이미지 최대 변 길이")
+    llm.add_argument("--llm-jpeg-quality", type=int, default=None, help="LLM 입력 JPEG 품질")
+    llm.add_argument("--llm-num-predict", type=int, default=None, help="LLM 최대 출력 토큰")
+    llm.add_argument("--llm-temperature", type=float, default=None, help="LLM temperature")
     llm.add_argument("--llm-save", action="store_true", help="LLM 리포트를 .llm.txt로 저장")
 
     args = parser.parse_args()

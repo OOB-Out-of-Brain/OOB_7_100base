@@ -156,9 +156,9 @@ def main(args):
     save_path.mkdir(parents=True, exist_ok=True)
 
     device  = get_device()
-    use_amp = s.get("amp", True) and device.type in ("cuda", "mps")
+    use_amp = s.get("use_amp", s.get("amp", True)) and device.type in ("cuda", "mps")
     grad_clip = s.get("grad_clip", 1.0)
-    scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" and use_amp else None
+    scaler = torch.amp.GradScaler("cuda") if device.type == "cuda" and use_amp else None
 
     print(f"\n디바이스: {device}  AMP: {use_amp}")
     print(runtime_summary(device))
@@ -170,6 +170,7 @@ def main(args):
         image_size=image_size,
         batch_size=batch_size,
         bhsd_processed_dir=d.get("bhsd_processed_dir", "./data/processed/bhsd"),
+        num_workers=d.get("num_workers", 0),
     )
     print(f"학습: {len(train_loader.dataset)}개  검증: {len(val_loader.dataset)}개\n")
 

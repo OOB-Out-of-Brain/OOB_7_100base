@@ -322,6 +322,9 @@ def main(args):
         if args.seg_batch:
             seg_extra += ["--batch_size", str(args.seg_batch)]
         if use_resume:
+            # ⚠ --resume은 현재 예약된 플래그로 실제 재개 로직 미구현.
+            # training 스크립트가 플래그를 수신하나 무시하며 항상 처음부터 학습함.
+            console.print("[yellow]⚠ resume 기능 미구현 — 처음부터 학습합니다.[/yellow]")
             cls_extra.append("--resume")
             seg_extra.append("--resume")
 

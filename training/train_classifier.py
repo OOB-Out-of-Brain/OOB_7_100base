@@ -123,11 +123,10 @@ def evaluate(model, loader, criterion, device, use_amp, threshold=0.5):
 def _thresholds_from_config(c: dict) -> np.ndarray:
     start = float(c.get("threshold_min", 0.2))
     stop = float(c.get("threshold_max", 0.7))
-    step = float(c.get("threshold_step", 0.05))
-    if step <= 0:
-        raise ValueError("classifier.threshold_step must be > 0")
-    count = int(round((stop - start) / step)) + 1
-    return np.round(start + np.arange(count) * step, 4)
+    steps = int(c.get("threshold_sweep_steps", 11))
+    if steps < 2:
+        raise ValueError("classifier.threshold_sweep_steps must be >= 2")
+    return np.round(np.linspace(start, stop, steps), 4)
 
 
 def _select_validation_metrics(probs: np.ndarray, labels: np.ndarray, c: dict) -> dict:
@@ -160,15 +159,15 @@ def main(args):
     batch_size  = args.batch_size or c["batch_size"]
     lr          = args.lr         or c["learning_rate"]
     image_size  = c["image_size"]
-    num_workers = cfg["data"].get("num_workers", 6)
+    num_workers = cfg["data"].get("num_workers", 0)
     freeze_epochs = min(c.get("freeze_epochs", 5), epochs)
     save_path = Path(c["save_path"])
     save_path.mkdir(parents=True, exist_ok=True)
 
     device  = get_device()
-    use_amp = c.get("amp", True) and device.type in ("cuda", "mps")
+    use_amp = c.get("use_amp", c.get("amp", True)) and device.type in ("cuda", "mps")
     grad_clip = c.get("grad_clip", 1.0)
-    scaler = torch.cuda.amp.GradScaler() if device.type == "cuda" and use_amp else None
+    scaler = torch.amp.GradScaler("cuda") if device.type == "cuda" and use_amp else None
 
     print(f"\n디바이스: {device}  AMP: {use_amp}")
     print(runtime_summary(device))

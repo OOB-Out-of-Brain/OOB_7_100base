@@ -98,8 +98,8 @@ class StrokePipeline:
 
         self.classifier = self._load_classifier(classifier_ckpt)
         self.segmentor = self._load_segmentor(segmentor_ckpt)
-        self.cls_size = cls_image_size or self.classifier_cfg.get("image_size", 224)
-        self.seg_size = seg_image_size or self.segmentor_cfg.get("image_size", 256)
+        self.cls_size = cls_image_size or self.classifier_cfg.get("image_size", 240)
+        self.seg_size = seg_image_size or self.segmentor_cfg.get("image_size", 320)
         self.seg_threshold = float(
             seg_threshold if seg_threshold is not None
             else self.segmentor_cfg.get("seg_threshold", 0.5)
@@ -133,7 +133,7 @@ class StrokePipeline:
         ])
 
     def _load_classifier(self, ckpt_path: str) -> StrokeClassifier:
-        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=True)
+        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         cfg = ckpt.get("config", {})
         self.classifier_cfg = cfg
         self.class_names = ckpt.get("class_names", cfg.get("class_names", ["normal", "hemorrhagic"]))
@@ -149,7 +149,7 @@ class StrokePipeline:
         return model
 
     def _load_segmentor(self, ckpt_path: str) -> StrokeSegmentor:
-        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=True)
+        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         cfg = ckpt.get("config", {})
         self.segmentor_cfg = cfg
         model = StrokeSegmentor(
